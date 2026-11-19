@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect TikTok</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+</head>
+<body>
+<header class="site">
+  <a class="name" href="./">takefit</a>
+  <nav class="row"><a href="privacy.html">Privacy Policy</a> <a href="terms.html">Terms of Service</a></nav>
+</header>
+<main>
+  <h1>Connect your TikTok account</h1>
+  <p>takefit will ask TikTok for these permissions. You can untick any of them on TikTok's page, and disconnect
+    at any time in the TikTok app (Settings and privacy &gt; Security &gt; Apps and services).</p>
+  <div class="card">
+    <p><strong>Read your profile info</strong> (user.info.basic)<br>
+      <span class="muted">Your display name and avatar, so you can see which account you are posting to.</span></p>
+    <p><strong>Upload drafts</strong> (video.upload)<br>
+      <span class="muted">Send a clip to your TikTok inbox, where you finish and post it yourself.</span></p>
+    <p><strong>Post directly</strong> (video.publish)<br>
+      <span class="muted">Post a clip to your profile with the caption and settings you choose on the post page.</span></p>
+  </div>
+  <p><button class="button" id="go" type="button">Continue with TikTok</button></p>
+  <p id="problem" class="status bad" hidden></p>
+  <p class="muted">After you tap Authorize, TikTok brings you back to this website with a one-time code for
+    takefit.</p>
+</main>
+<footer class="site">
+  <span>takefit</span>
+  <a href="privacy.html">Privacy Policy</a>
+  <a href="terms.html">Terms of Service</a>
+</footer>
+<script>
+// Build TikTok's login link. "state" is a random check value: the callback page only trusts a code that comes
+// back with the same value (so nobody can slip you a code for their account).
+document.getElementById("go").addEventListener("click", () => {
+  const cfg = window.TAKEFIT;
+  if (!cfg || !cfg.tiktokClientKey || cfg.tiktokClientKey.startsWith("PASTE_")) {
+    const p = document.getElementById("problem");
+    p.textContent = "The TikTok client key is not set yet (config.js).";
+    p.hidden = false;
+    return;
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  const state = Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+  sessionStorage.setItem("takefit_tiktok_state", state);
+  const params = new URLSearchParams({
+    client_key: cfg.tiktokClientKey,
+    scope: cfg.scopes.join(","),
+    response_type: "code",
+    redirect_uri: cfg.redirectUri,
+    state: state,
+  });
+  location.href = "https://www.tiktok.com/v2/auth/authorize/?" + params.toString();
+});
+</script>
+</body>
+</html>

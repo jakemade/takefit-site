@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>TikTok connected</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="name" href="./">takefit</a>
+  <nav class="row"><a href="privacy.html">Privacy Policy</a> <a href="terms.html">Terms of Service</a></nav>
+</header>
+<main>
+  <h1 id="title">Almost done</h1>
+  <div id="good" hidden>
+    <p>TikTok sent takefit a one-time code. Copy it and paste it into takefit:</p>
+    <span class="code" id="paste"></span>
+    <p class="row"><button class="button" id="copy" type="button">Copy</button> <span id="copied" class="muted"></span></p>
+    <div class="card">
+      <p><strong>Where to paste it:</strong> takefit is waiting for it after
+        <code>uv run python -m pipeline.tiktok_auth</code>. If it is no longer waiting, run:</p>
+      <span class="code">uv run python -m pipeline.tiktok_auth --code "PASTE"</span>
+      <p class="muted">The code works once and only for a few minutes. takefit swaps it for a login it keeps in
+        private storage; the code is not stored on this website.</p>
+    </div>
+    <p id="scopes" class="muted"></p>
+  </div>
+  <p id="problem" class="status bad" hidden></p>
+</main>
+<footer class="site">
+  <span>takefit</span>
+  <a href="privacy.html">Privacy Policy</a>
+  <a href="terms.html">Terms of Service</a>
+</footer>
+<script>
+// TikTok sends you here as callback.html?code=...&scopes=...&state=... (or ?error=... if something went wrong).
+const query = new URLSearchParams(location.search);
+history.replaceState(null, "", location.pathname);        // take the code out of the address bar and history
+const code = query.get("code"), state = query.get("state") || "", error = query.get("error");
+const started = sessionStorage.getItem("takefit_tiktok_state");   // set by connect.html (none if takefit's
+sessionStorage.removeItem("takefit_tiktok_state");                // command printed the link)
+const show = (id, text) => { const el = document.getElementById(id); el.hidden = false; if (text) el.textContent = text; };
+
+if (error) {
+  document.getElementById("title").textContent = "Not connected";
+  show("problem", error === "access_denied"
+    ? "You cancelled on TikTok's page, so nothing was connected. You can try again from the Connect page."
+    : "TikTok said: " + error + (query.get("error_description") ? " (" + query.get("error_description") + ")" : ""));
+} else if (!code) {
+  document.getElementById("title").textContent = "No code here";
+  show("problem", "This page shows the code TikTok sends after you connect your account. Start from the Connect page.");
+} else if (started && started !== state) {
+  document.getElementById("title").textContent = "Not connected";
+  show("problem", "This code does not belong to the login you started on this website (the check value does " +
+    "not match), so it is not shown. Start again from the Connect page.");
+} else {
+  // The line takefit reads: the code (URL-encoded, as TikTok sent it) and the state, so takefit can check it too.
+  const line = "code=" + encodeURIComponent(code) + "&state=" + encodeURIComponent(state);
+  document.getElementById("title").textContent = "TikTok connected";
+  document.getElementById("paste").textContent = line;
+  show("good");
+  const scopes = query.get("scopes");
+  if (scopes) document.getElementById("scopes").textContent = "Permissions you allowed: " + scopes.split(",").join(", ");
+  document.getElementById("copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(line);
+      document.getElementById("copied").textContent = "Copied.";
+    } catch (e) {
+      document.getElementById("copied").textContent = "Select the text above and copy it.";
+    }
+  });
+}
+</script>
+</body>
+</html>
