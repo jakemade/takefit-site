@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Post to TikTok</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site">
+  <a class="name" href="./">takefit</a>
+  <nav class="row"><a href="privacy.html">Privacy Policy</a> <a href="terms.html">Terms of Service</a></nav>
+</header>
+<main>
+  <h1>Post to TikTok</h1>
+  <p id="loading" class="status">Loading your clips...</p>
+  <p id="fatal" class="status bad" hidden></p>
+
+  <div id="app" hidden>
+    <!-- Who you are posting as (creator_info: nickname + avatar; user.info.basic: display name) -->
+    <div class="card creator">
+      <img id="avatar" alt="">
+      <div>
+        <div><strong id="nickname"></strong> <span class="muted" id="username"></span></div>
+        <div class="muted" id="loggedin"></div>
+      </div>
+    </div>
+
+    <label for="clip">Clip</label>
+    <select id="clip"></select>
+
+    <!-- The preview of exactly what will be posted -->
+    <p class="muted" id="cliplength"></p>
+    <video id="preview" controls playsinline preload="metadata"></video>
+    <p id="toolong" class="status bad" hidden></p>
+    <div id="rules" class="status warn" hidden></div>
+
+    <div class="tabs" role="group" aria-label="How to post">
+      <button type="button" class="button secondary" id="tab-direct" aria-pressed="true">Post to TikTok</button>
+      <button type="button" class="button secondary" id="tab-draft" aria-pressed="false">Send to TikTok inbox</button>
+    </div>
+
+    <label for="caption">Caption</label>
+    <textarea id="caption" maxlength="2200"></textarea>
+    <div class="row muted"><span id="count"></span><button type="button" class="button secondary" id="copycap">Copy caption</button></div>
+
+    <!-- Direct post settings (TikTok's Content Sharing Guidelines) -->
+    <section id="direct">
+      <label for="privacy">Who can see this video</label>
+      <select id="privacy" required>
+        <option value="" disabled selected>Choose who can see this video</option>
+      </select>
+
+      <label>Allow users to</label>
+      <div class="check" id="row-comment"><input type="checkbox" id="comment"><label for="comment" style="margin:0">Comment</label></div>
+      <div class="hint" id="hint-comment" hidden>Turned off in your TikTok settings.</div>
+      <div class="check" id="row-duet"><input type="checkbox" id="duet"><label for="duet" style="margin:0">Duet</label></div>
+      <div class="hint" id="hint-duet" hidden>Turned off in your TikTok settings.</div>
+      <div class="check" id="row-stitch"><input type="checkbox" id="stitch"><label for="stitch" style="margin:0">Stitch</label></div>
+      <div class="hint" id="hint-stitch" hidden>Turned off in your TikTok settings.</div>
+
+      <div class="card">
+        <div class="switch">
+          <label for="disclose" style="margin:0">Disclose video content</label>
+          <input type="checkbox" id="disclose">
+        </div>
+        <p class="muted" style="margin:6px 0 0">Turn on to disclose that this video promotes goods or services in
+          exchange for something of value. Your video could promote yourself, a third party, or both.</p>
+        <div id="disclosure" hidden>
+          <div class="check"><input type="checkbox" id="yourbrand"><label for="yourbrand" style="margin:0">Your brand</label></div>
+          <div class="hint">You are promoting yourself or your own business. This video will be classified as Brand Organic.</div>
+          <div class="check" id="row-branded"><input type="checkbox" id="branded"><label for="branded" style="margin:0">Branded content</label></div>
+          <div class="hint">You are promoting another brand or a third party. This video will be classified as Branded Content.</div>
+          <div class="hint" id="hint-branded" hidden>Branded content visibility cannot be set to private.</div>
+          <p class="status" id="labelnote" hidden></p>
+          <p class="status warn" id="choosenote" hidden>You need to indicate if your content promotes yourself, a third party, or both.</p>
+        </div>
+      </div>
+
+      <div class="check"><input type="checkbox" id="aigc"><label for="aigc" style="margin:0">AI-generated content</label></div>
+      <div class="hint">Turn on if the video was made or significantly edited with AI. TikTok labels it.</div>
+    </section>
+
+    <section id="draft" hidden>
+      <div class="card">
+        <p>The video goes to your TikTok inbox. Open the TikTok app, tap the notification, then edit and post it
+          there. TikTok does not take a caption with a draft, so copy the caption above and paste it in the app.</p>
+        <p class="muted">Nothing is posted until you finish it in the TikTok app.</p>
+      </div>
+    </section>
+
+    <p class="consent" id="consent"></p>
+    <p><button class="button" id="post" type="button" disabled>Post</button></p>
+    <p class="muted" id="processing">After you post, it may take a few minutes for the video to process and appear
+      on your profile.</p>
+    <p id="status" class="status" hidden></p>
+  </div>
+</main>
+<footer class="site">
+  <span>takefit</span>
+  <a href="privacy.html">Privacy Policy</a>
+  <a href="terms.html">Terms of Service</a>
+</footer>
+<script>
+// How this page works: takefit (on the computer that holds the TikTok login) asks TikTok for your account's
+// current posting options, saves them with your approved clips in private storage, and gives you this page's
+// link with "#data=<a read link to that file>". You choose everything here and press Post. The page writes your
+// choice to one file through a one-file write link, and takefit (still running) checks it, posts it, and writes
+// the progress back, which this page shows. The TikTok client secret and tokens never reach this page.
+const $ = id => document.getElementById(id);
+const NAMES = { PUBLIC_TO_EVERYONE: "Everyone", MUTUAL_FOLLOW_FRIENDS: "Friends",
+                FOLLOWER_OF_CREATOR: "Followers", SELF_ONLY: "Only me" };
+let page = null, mode = "direct", sent = {}, polling = null;
+
+function fatal(text) {
+  $("loading").hidden = true;
+  $("fatal").textContent = text;
+  $("fatal").hidden = false;
+}
+
+function clip() { return page.clips.find(c => c.id === $("clip").value); }
+
+function link(url, text) {
+  const a = document.createElement("a");
+  a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = text;
+  return a;
+}
+
+// The consent sentence TikTok requires right before the button.
+function renderConsent() {
+  const box = $("consent");
+  box.replaceChildren();
+  if (mode === "draft") {
+    box.append("By sending, you agree to TikTok's ", link(page.music_url, "Music Usage Confirmation"), ".");
+    return;
+  }
+  if ($("disclose").checked && $("branded").checked) {
+    box.append("By posting, you agree to TikTok's ", link(page.branded_url, "Branded Content Policy"), " and ",
+               link(page.music_url, "Music Usage Confirmation"), ".");
+  } else {
+    box.append("By posting, you agree to TikTok's ", link(page.music_url, "Music Usage Confirmation"), ".");
+  }
+}
+
+// Every rule that can turn the Post button off, with the reason shown when you hover it.
+function update() {
+  const c = clip();
+  const caption = $("caption").value;
+  $("count").textContent = caption.length + " / " + page.caption_max;    // JS counts UTF-16, like TikTok
+  const tooLong = page.max_video_post_duration_sec && c.seconds && c.seconds > page.max_video_post_duration_sec;
+  $("toolong").hidden = !(tooLong && mode === "direct");
+  $("toolong").textContent = tooLong ? "This video is " + Math.round(c.seconds) + " s long; your account can post " +
+    "videos of at most " + page.max_video_post_duration_sec + " s." : "";
+
+  // Commercial content disclosure
+  const disclose = $("disclose").checked;
+  $("disclosure").hidden = !disclose;
+  const privateChosen = $("privacy").value === "SELF_ONLY";
+  $("branded").disabled = privateChosen;                       // branded content can't be private
+  if (privateChosen) $("branded").checked = false;
+  $("row-branded").classList.toggle("disabled", privateChosen);
+  $("hint-branded").hidden = !privateChosen;
+  const brand = disclose && $("yourbrand").checked, branded = disclose && $("branded").checked;
+  for (const option of $("privacy").options) {
+    if (option.value === "SELF_ONLY") {
+      option.disabled = branded;
+      option.title = branded ? "Branded content visibility cannot be set to private." : "";
+    }
+  }
+  const label = branded ? "Paid partnership" : brand ? "Promotional content" : "";
+  $("labelnote").hidden = !label;
+  $("labelnote").textContent = label ? "Your video will be labeled \"" + label + "\"." : "";
+  const noneChosen = disclose && !brand && !branded;
+  $("choosenote").hidden = !noneChosen;
+  renderConsent();
+
+  let why = "";
+  if (sent[c.id]) why = "This clip has been sent.";
+  else if (c.problems && c.problems.length) why = "This clip breaks a rule (see above).";
+  else if (!caption.trim() && mode === "direct") why = "Write a caption.";
+  else if (caption.length > page.caption_max) why = "The caption is too long.";
+  else if (mode === "direct" && !$("privacy").value) why = "Choose who can see this video.";
+  else if (mode === "direct" && tooLong) why = "The video is too long for your account.";
+  else if (mode === "direct" && noneChosen) why = "You need to indicate if your content promotes yourself, a third party, or both.";
+  $("post").disabled = Boolean(why) || Boolean(polling);
+  $("post").title = why;
+  $("post").textContent = mode === "direct" ? "Post" : "Send to TikTok inbox";
+  $("processing").hidden = mode !== "direct";
+}
+
+function setMode(next) {
+  mode = next;
+  $("tab-direct").setAttribute("aria-pressed", String(next === "direct"));
+  $("tab-draft").setAttribute("aria-pressed", String(next === "draft"));
+  $("direct").hidden = next !== "direct";
+  $("draft").hidden = next !== "draft";
+  update();
+}
+
+function showClip() {
+  const c = clip();
+  $("preview").src = c.video_url;
+  $("caption").value = c.caption || "";
+  $("cliplength").textContent = c.seconds ? "Length: " + Math.round(c.seconds) + " s" : "";
+  $("rules").hidden = !(c.problems && c.problems.length);
+  $("rules").textContent = c.problems && c.problems.length ? "Not allowed yet: " + c.problems.join("; ") : "";
+  update();
+}
+
+function showStatus(text, kind) {
+  $("status").hidden = false;
+  $("status").className = "status " + (kind || "");
+  $("status").textContent = text;
+}
+
+// Send your choice, then follow takefit's progress messages.
+async function send() {
+  const c = clip();
+  const nonce = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, "0")).join("");
+  const answer = {
+    nonce, clip: c.id, mode, consent: true, caption: $("caption").value, answered_at: new Date().toISOString(),
+    privacy: mode === "direct" ? $("privacy").value : null,
+    allow_comment: mode === "direct" && $("comment").checked,
+    allow_duet: mode === "direct" && $("duet").checked,
+    allow_stitch: mode === "direct" && $("stitch").checked,
+    your_brand: mode === "direct" && $("disclose").checked && $("yourbrand").checked,
+    branded_content: mode === "direct" && $("disclose").checked && $("branded").checked,
+    ai_generated: mode === "direct" && $("aigc").checked,
+  };
+  showStatus("Sending your choice to takefit...");
+  try {
+    const r = await fetch(page.answer_url, { method: "PUT", headers: { "Content-Type": "application/json" },
+                                             body: JSON.stringify(answer) });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+  } catch (e) {
+    showStatus("Could not reach takefit's storage (" + e.message + "). Is the link older than 7 days?", "bad");
+    return;
+  }
+  polling = setInterval(() => poll(nonce, c.id), 2000);
+  update();
+}
+
+const FINAL = { publish_complete: "ok", send_to_user_inbox: "ok", failed: "bad", refused: "bad", closed: "warn" };
+async function poll(nonce, clipId) {
+  let s;
+  try {
+    const r = await fetch(page.status_url, { cache: "no-store" });
+    s = await r.json();
+  } catch (e) { return; }                                         // try again in 2 s
+  if (s.state === "closed") {
+    clearInterval(polling); polling = null;
+    showStatus(s.message, "warn");
+  } else if (s.nonce === nonce) {
+    showStatus(s.message + (s.url ? " " + s.url : ""), FINAL[s.state] || "");
+    if (FINAL[s.state]) {
+      clearInterval(polling); polling = null;
+      if (FINAL[s.state] === "ok") {
+        sent[clipId] = true;
+        const option = [...$("clip").options].find(o => o.value === clipId);
+        if (option) option.textContent += " (sent)";
+      }
+    }
+  } else {
+    showStatus("Waiting for takefit to pick up your choice... (takefit must still be running)");
+  }
+  update();
+}
+
+async function start() {
+  const data = new URLSearchParams(location.hash.slice(1)).get("data");
+  if (!data) return fatal("This page needs the link takefit prints (pipeline.publish tiktok --web).");
+  try {
+    const r = await fetch(data, { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    page = await r.json();
+  } catch (e) {
+    return fatal("Could not load your clips (" + e.message + "). The link may be older than 7 days, or the " +
+                 "storage does not allow this website yet (see docs/tiktok_setup.md, CORS).");
+  }
+  if (!page.clips.length) return fatal("No approved clips are waiting to be posted.");
+  const avatar = page.creator.avatar_url || page.user.avatar_url;
+  if (avatar) $("avatar").src = avatar; else $("avatar").hidden = true;
+  $("nickname").textContent = page.creator.nickname || page.user.display_name || "";
+  $("username").textContent = page.creator.username ? "@" + page.creator.username : "";
+  $("loggedin").textContent = page.user.display_name ? "Logged in as " + page.user.display_name : "";
+  for (const c of page.clips) {
+    const o = document.createElement("option");
+    o.value = c.id; o.textContent = "#" + c.rank + "  " + c.id;
+    $("clip").append(o);
+  }
+  for (const level of page.privacy_level_options) {
+    const o = document.createElement("option");
+    o.value = level; o.textContent = NAMES[level] || level;
+    $("privacy").append(o);
+  }
+  // Interactions: off by default; greyed out when your TikTok settings turned them off.
+  for (const [id, off] of [["comment", page.comment_disabled], ["duet", page.duet_disabled],
+                           ["stitch", page.stitch_disabled]]) {
+    $(id).disabled = off;
+    $("row-" + id).classList.toggle("disabled", off);
+    $("hint-" + id).hidden = !off;
+  }
+  for (const id of ["privacy", "disclose", "yourbrand", "branded", "caption"]) $(id).addEventListener("input", update);
+  for (const id of ["disclose", "yourbrand", "branded", "privacy"]) $(id).addEventListener("change", update);
+  $("clip").addEventListener("change", showClip);
+  $("tab-direct").addEventListener("click", () => setMode("direct"));
+  $("tab-draft").addEventListener("click", () => setMode("draft"));
+  $("post").addEventListener("click", send);
+  $("copycap").addEventListener("click", () => navigator.clipboard.writeText($("caption").value).catch(() => {}));
+  $("loading").hidden = true;
+  $("app").hidden = false;
+  showClip();
+}
+start();
+</script>
+</body>
+</html>
